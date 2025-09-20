@@ -1,11 +1,15 @@
 FROM n8nio/n8n:latest
 
-# Opcional: instala tzdata si quieres zona horaria específica
-# RUN apk add --no-cache tzdata
+# Necesitamos permisos de root solo para copiar el script
+USER root
+COPY start.sh /usr/local/bin/start.sh
+RUN chmod 755 /usr/local/bin/start.sh
+# Volver a usuario 'node' (como recomienda n8n)
+USER node
 
-# Copiamos script de arranque que mapea PORT -> N8N_PORT en Render
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+# Usar el script de arranque
+CMD ["/usr/local/bin/start.sh"]
 
-# Render inyecta PORT; n8n debe escuchar en N8N_PORT
-CMD ["/start.sh"]
+
+# FROM n8nio/n8n:latest
+# CMD ["sh","-lc","N8N_PORT=${PORT:-5678} n8n start"]
