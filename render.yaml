@@ -2,23 +2,25 @@ services:
   - type: web
     name: n8n-mvp
     env: docker
-    plan: free        # puedes cambiar a starter si necesitas más estabilidad
+    plan: free
     autoDeploy: true
     healthCheckPath: /healthz
+    startCommand: sh -lc 'N8N_PORT=${PORT:-5678} exec n8n start'
     envVars:
       - key: N8N_PROTOCOL
         value: https
       - key: N8N_HOST
-        # reemplaza después del primer deploy con tu dominio real de Render
-        value: n8n-mvp.onrender.com
+        value: comomeveo-mvp.onrender.com
       - key: N8N_EDITOR_BASE_URL
-        value: https://n8n-mvp.onrender.com/
+        value: https://comomeveo-mvp.onrender.com/
       - key: WEBHOOK_URL
-        value: https://n8n-mvp.onrender.com/
-      - key: GENERIC_TIMEZONE
-        value: UTC
+        value: https://comomeveo-mvp.onrender.com/
       - key: N8N_ENCRYPTION_KEY
         generateValue: true
+      - key: N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS
+        value: "true"
+      - key: GENERIC_TIMEZONE
+        value: UTC
       - key: DB_TYPE
         value: postgresdb
       - key: DB_POSTGRESDB_HOST
