@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Product = { id: number; name: string; price: string; image?: string | null; source?: string };
+type Product = { id: number; name: string; price: string; image?: string | null; source: 'woo' | 'local' };
 
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -37,26 +37,32 @@ export default function Home() {
     if (productId !== "") {
       const selectedProduct = products.find(p => p.id === productId);
       if (selectedProduct?.image) {
-        // Convert image URL to base64
-        fetch(selectedProduct.image)
-          .then(response => {
-            if (!response.ok) {
-              throw new Error('Network response was not ok');
-            }
-            return response.blob();
-          })
-          .then(blob => {
-            const reader = new FileReader();
-            reader.onload = () => setGarmentB64(reader.result as string);
-            reader.readAsDataURL(blob);
-          })
-          .catch(error => {
-            console.error('Error loading product image:', error);
-            // Fallback: try to load as direct image
-            if (selectedProduct.image) {
-              setGarmentB64(selectedProduct.image);
-            }
-          });
+        // Check if it's a WooCommerce product (has full URL) or local product
+        if (selectedProduct.image.startsWith('http')) {
+          // WooCommerce product - convert to base64
+          fetch(selectedProduct.image)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error('Network response was not ok');
+              }
+              return response.blob();
+            })
+            .then(blob => {
+              const reader = new FileReader();
+              reader.onload = () => setGarmentB64(reader.result as string);
+              reader.readAsDataURL(blob);
+            })
+            .catch(error => {
+              console.error('Error loading WooCommerce product image:', error);
+              // Fallback: use image URL directly
+              if (selectedProduct.image) {
+                setGarmentB64(selectedProduct.image);
+              }
+            });
+        } else {
+          // Local product - use image URL directly (it should be a valid public URL)
+          setGarmentB64(selectedProduct.image);
+        }
       }
     }
   }, [productId, products]);
@@ -71,7 +77,8 @@ export default function Home() {
       body: JSON.stringify({
         user: userB64,
         garment: garmentB64,
-        productId: productId === "" ? undefined : Number(productId)
+        productId: productId === "" ? undefined : Number(productId),
+        // prompt: 'Viste al usuario con el producto seleccionado, manten el fondo, el estilo, y los detalles, solo es un preview de como le quedaria la prenda colocada a ese usuario.'
       })
     });
     const data = await r.json();
@@ -118,9 +125,20 @@ export default function Home() {
             <section id="catalogo" className="space-y-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-light tracking-tight">Catálogo de Productos</h2>
-                <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                  {products.length} productos
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                    {products.length} productos
+                  </span>
+                  {products.length > 0 && (
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      products[0].source === 'woo' 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {products[0].source === 'woo' ? 'WooCommerce' : 'Demo Local'}
+                    </span>
+                  )}
+                </div>
               </div>
               
               <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
