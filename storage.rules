@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Permitir a usuarios autenticados subir/leer sus propias imágenes
+    match /sessions/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Permitir a usuarios autenticados subir/leer imágenes generadas
+    match /generated-images/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Permitir a usuarios autenticados subir/leer feedback con imágenes
+    match /feedback/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Regla general para desarrollo - usuarios autenticados pueden acceder a sus archivos
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
