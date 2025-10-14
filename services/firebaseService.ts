@@ -10,6 +10,7 @@ import {
   limit,
   serverTimestamp,
   Timestamp,
+  QueryConstraint
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
@@ -162,38 +163,49 @@ export class FirebaseService {
     }
   }
 
-  static async getUserSessions(
-    userId: string,
-    opts?: { noOrder?: boolean }
-  ): Promise<TryOnSession[]> {
-    const base = [
-      collection(db, 'sessions'),
-      where('userId', '==', userId),
-    ] as const;
+  
+static async getUserSessions(
+  userId: string,
+  opts?: { noOrder?: boolean }
+): Promise<TryOnSession[]> {
+  const constraints: QueryConstraint[] = [ where('userId', '==', userId) ];
+  if (!opts?.noOrder) constraints.push(orderBy('updatedAt', 'desc'));
+  constraints.push(limit(20));
 
-    const q = opts?.noOrder
-      ? query(...base, limit(20))
-      : query(...base, orderBy('updatedAt', 'desc'), limit(20));
+  const q = query(collection(db, 'sessions'), ...constraints);
+  const snap = await getDocs(q);
 
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => {
-      const data = d.data();
-      const c = data.createdAt as Timestamp | undefined;
-      const u = data.updatedAt as Timestamp | undefined;
-      return {
-        id: d.id,
-        userId: data.userId, // Fixed: was data.uid
-        originalImageUrl: data.originalImageUrl,
-        createdAt: c?.toDate() ?? new Date(0),
-        updatedAt: u?.toDate() ?? new Date(0),
-        outfitHistory: (data.outfitHistory ?? []).map((layer: any) =>
-          this.convertFirestoreToOutfitLayer(layer)
-        ),
-        currentOutfitIndex: Number(data.currentOutfitIndex ?? 0),
-        currentPoseIndex: Number(data.currentPoseIndex ?? 0),
-      } as TryOnSession;
-    });
-  }
+  return snap.docs.map((d) => {
+    const data = d.data();
+
+    // ✅ seguro ante serverTimestamp() y tipos raros
+    const createdAt: Date =
+      (data.createdAt instanceof Timestamp && data.createdAt.toDate()) ||
+      data.createdAt?.toDate?.() ||
+      new Date(0);
+
+    const updatedAt: Date =
+      (data.updatedAt instanceof Timestamp && data.updatedAt.toDate()) ||
+      data.updatedAt?.toDate?.() ||
+      createdAt; // fallback razonable
+
+    return {
+      id: d.id,
+      userId: data.userId,
+      originalImageUrl: data.originalImageUrl,
+      createdAt,
+      updatedAt,
+      outfitHistory: (data.outfitHistory ?? []).map((layer: any) =>
+        this.convertFirestoreToOutfitLayer(layer)
+      ),
+      currentOutfitIndex: Number(data.currentOutfitIndex ?? 0),
+      currentPoseIndex: Number(data.currentPoseIndex ?? 0),
+    } as TryOnSession;
+  });
+}
+  
+
+
   // Feedback management
   static async submitFeedback(
     sessionId: string,

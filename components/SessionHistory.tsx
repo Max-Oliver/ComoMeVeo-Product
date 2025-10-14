@@ -32,14 +32,12 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({
       const userSessions = await FirebaseService.getUserSessions(user.uid);
       setSessions(userSessions);
     } catch (err: any) {
-      // Si el índice no existe aún, caemos a un fetch sin orderBy y ordenamos en cliente
       if (err?.code === 'failed-precondition') {
         console.warn('Index faltante; usando fallback sin orderBy.');
-        const userSessions = await FirebaseService.getUserSessions(user.uid );
-        // ordeno en cliente por updatedAt desc
-        userSessions.sort(
-          (a, b) =>
-            (b.updatedAt?.getTime?.() ?? 0) - (a.updatedAt?.getTime?.() ?? 0)
+        const userSessions = await FirebaseService.getUserSessions(user.uid, { noOrder: true }); // <-- importante
+        // Ordeno en cliente por updatedAt desc
+        userSessions.sort((a, b) =>
+          (b.updatedAt?.getTime?.() ?? 0) - (a.updatedAt?.getTime?.() ?? 0)
         );
         setSessions(userSessions);
       } else {
