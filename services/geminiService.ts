@@ -4,6 +4,9 @@
 */
 
 import { GoogleGenAI, GenerateContentResponse, Modality } from "@google/genai";
+import { getBlob, ref } from "firebase/storage";
+
+import { storage } from "../config/firebase";
 
 const fileToPart = async (file: File) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -37,12 +40,28 @@ const blobToDataUrl = (blob: Blob) =>
         reader.readAsDataURL(blob);
     });
 
+const isFirebaseStorageUrl = (url: string) =>
+    url.includes("firebasestorage.googleapis.com") ||
+    url.startsWith("https://storage.googleapis.com/");
+
 const imageUrlToInlinePart = async (imageUrl: string) => {
     if (imageUrl.startsWith('data:')) {
         return dataUrlToPart(imageUrl);
     }
 
-    const response = await fetch(imageUrl);
+    if (isFirebaseStorageUrl(imageUrl)) {
+        try {
+            console.log('[Gemini] Loading Firebase Storage image for inline conversion');
+            const storageRef = ref(storage, imageUrl);
+            const blob = await getBlob(storageRef);
+            const dataUrl = await blobToDataUrl(blob);
+            return dataUrlToPart(dataUrl);
+        } catch (storageError) {
+            console.warn('[Gemini] Failed to load image via Firebase Storage, falling back to fetch', storageError);
+        }
+    }
+
+    const response = await fetch(imageUrl, { mode: 'cors' });
     if (!response.ok) {
         throw new Error(`Failed to fetch image for processing (${response.status})`);
     }
