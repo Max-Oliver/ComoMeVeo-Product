@@ -20,15 +20,7 @@ import { getFriendlyErrorMessage } from './lib/utils';
 import Spinner from './components/Spinner';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import DebugPanel from './components/DebugPanel';
-
-const POSE_INSTRUCTIONS = [
-  "Full frontal view, hands on hips",
-  "Slightly turned, 3/4 view",
-  "Side profile view",
-  "Jumping in the air, mid-action shot",
-  "Walking towards camera",
-  "Leaning against a wall",
-];
+import { POSE_INSTRUCTIONS } from './lib/poses';
 
 const useMediaQuery = (query: string): boolean => {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
@@ -188,19 +180,30 @@ const AppContent: React.FC = () => {
     let cachedImageUrl: string | null = null;
     if (currentSessionId) {
       try {
-        console.log('Checking cache for session:', currentSessionId, 'pose:', POSE_INSTRUCTIONS[currentPoseIndex], 'garment:', garmentInfo.id);
+        console.log('[Wardrobe] Checking cache', {
+          sessionId: currentSessionId,
+          pose: POSE_INSTRUCTIONS[currentPoseIndex],
+          garmentId: garmentInfo.id,
+        });
         cachedImageUrl = await FirebaseService.isImageCached(
           currentSessionId,
           POSE_INSTRUCTIONS[currentPoseIndex],
           user.uid,
           garmentInfo.id
         );
-        console.log('Cache result:', cachedImageUrl ? 'Found cached image' : 'No cached image found');
+        console.log('[Wardrobe] Cache result', {
+          hit: Boolean(cachedImageUrl),
+          sessionId: currentSessionId,
+          garmentId: garmentInfo.id,
+        });
       } catch (error) {
         console.error('Error checking cache:', error);
       }
     } else {
-      console.log('No session ID available for cache check');
+      console.log('[Wardrobe] Cache skipped - no active session', {
+        sessionId: currentSessionId,
+        hasUser: Boolean(user),
+      });
     }
 
     setError(null);
@@ -247,19 +250,20 @@ const AppContent: React.FC = () => {
       // Update session in Firebase
       if (currentSessionId && user) {
         try {
-          console.log('Updating session in Firebase:', currentSessionId);
           await FirebaseService.updateSession(
             currentSessionId,
             updatedHistory,
             currentOutfitIndex + 1,
             currentPoseIndex
           );
-          console.log('Session updated successfully');
         } catch (error) {
           console.error('Error updating session:', error);
         }
       } else {
-        console.log('Cannot update session - missing sessionId or user:', { currentSessionId, user: !!user });
+        console.log('[Session] Skipped update - missing session or user', {
+          sessionId: currentSessionId,
+          hasUser: Boolean(user),
+        });
       }
       
       // Add to personal wardrobe if it's not already there

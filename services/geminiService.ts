@@ -29,6 +29,29 @@ const dataUrlToPart = (dataUrl: string) => {
     return { inlineData: { mimeType, data } };
 }
 
+const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+
+const imageUrlToInlinePart = async (imageUrl: string) => {
+    if (imageUrl.startsWith('data:')) {
+        return dataUrlToPart(imageUrl);
+    }
+
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch image for processing (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    return dataUrlToPart(dataUrl);
+};
+
 const handleApiResponse = (response: GenerateContentResponse): string => {
     if (response.promptFeedback?.blockReason) {
         const { blockReason, blockReasonMessage } = response.promptFeedback;
@@ -72,7 +95,7 @@ export const generateModelImage = async (userImage: File): Promise<string> => {
 };
 
 export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentImage: File): Promise<string> => {
-    const modelImagePart = dataUrlToPart(modelImageUrl);
+    const modelImagePart = await imageUrlToInlinePart(modelImageUrl);
     const garmentImagePart = await fileToPart(garmentImage);
     const prompt = `You are an expert virtual try-on AI. You will be given a 'model image' and a 'garment image'. Your task is to create a new photorealistic image where the person from the 'model image' is wearing the clothing from the 'garment image'.
 
@@ -93,7 +116,7 @@ export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentIm
 };
 
 export const generatePoseVariation = async (tryOnImageUrl: string, poseInstruction: string): Promise<string> => {
-    const tryOnImagePart = dataUrlToPart(tryOnImageUrl);
+    const tryOnImagePart = await imageUrlToInlinePart(tryOnImageUrl);
     const prompt = `You are an expert fashion photographer AI. Take this image and regenerate it from a different perspective. The person, clothing, and background style must remain identical. The new perspective should be: "${poseInstruction}". Return ONLY the final image.`;
     const response = await ai.models.generateContent({
         model,

@@ -15,23 +15,9 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
 import { TryOnSession, Feedback, GeneratedImage, OutfitLayer } from '../types';
+import { POSE_INSTRUCTIONS } from '../lib/poses';
 
 export class FirebaseService {
-  // Helper function to convert Firestore data back to OutfitLayer format
-  private static convertFirestoreToOutfitLayer(
-    firestoreData: any
-  ): OutfitLayer {
-    return {
-      garment: firestoreData.garment
-        ? {
-            id: firestoreData.garment.id,
-            name: firestoreData.garment.name,
-            url: firestoreData.garment.url,
-          }
-        : null,
-      poseImages: firestoreData.poseImages,
-    };
-  }
 
   // Helper function to upload base64 image to Firebase Storage
   static async uploadBase64Image(
@@ -52,7 +38,10 @@ export class FirebaseService {
       // Get download URL
       const downloadURL = await getDownloadURL(storageRef);
 
-      console.log('Image uploaded to Storage:', downloadURL);
+      console.log('[FirebaseService] Stored image in Cloud Storage', {
+        path,
+        downloadURL,
+      });
       return downloadURL;
     } catch (error) {
       console.error('Error uploading image to Storage:', error);
@@ -69,7 +58,7 @@ export class FirebaseService {
     currentPoseIndex: number = 0
   ): Promise<string> {
     try {
-      console.log('Creating session with data:', {
+      console.log('[FirebaseService] Creating session', {
         userId,
         originalImageUrl: originalImageUrl.substring(0, 100) + '...', // Log only first 100 chars
         outfitHistoryLength: outfitHistory.length,
@@ -80,7 +69,7 @@ export class FirebaseService {
       // Check if the URL is a base64 data URL and upload to Storage if needed
       let finalImageUrl = originalImageUrl;
       if (originalImageUrl.startsWith('data:')) {
-        console.log('Detected base64 image, uploading to Storage...');
+        console.log('[FirebaseService] Uploading base model image to Storage');
         const timestamp = Date.now();
         const imagePath = `sessions/${userId}/original-image-${timestamp}.jpg`;
         finalImageUrl = await this.uploadBase64Image(
@@ -107,15 +96,14 @@ export class FirebaseService {
           : 0,
       };
 
-      console.log('🔧 DEBUG: Converting outfitHistory for Firestore:', {
+      console.log('[FirebaseService] Prepared outfit history for Firestore', {
         originalLength: outfitHistory.length,
         convertedLength: firestoreOutfitHistory.length,
-        firstLayer: firestoreOutfitHistory[0],
       });
 
       const sessionData = FirebaseService.deepClean(sessionDataRaw); // <— evita undefined
       const docRef = await addDoc(collection(db, 'sessions'), sessionData);
-      console.log('Session created successfully with ID:', docRef.id);
+      console.log('[FirebaseService] Session created', { sessionId: docRef.id });
       return docRef.id;
     } catch (error) {
       console.error('Error in createSession:', error);
@@ -130,18 +118,18 @@ export class FirebaseService {
     currentPoseIndex: number
   ): Promise<void> {
     try {
-      console.log(
-        '🔧 DEBUG: Updating session:',
+      console.log('[FirebaseService] Updating session', {
         sessionId,
-        'with index:',
-        currentOutfitIndex
-      );
+        currentOutfitIndex,
+        currentPoseIndex,
+        outfitHistoryLength: outfitHistory.length,
+      });
 
       const firestoreOutfitHistory = outfitHistory.map(
         FirebaseService.normalizeLayer
       );
 
-      console.log('🔧 DEBUG: Converting outfitHistory for update:', {
+      console.log('[FirebaseService] Prepared outfit history for update', {
         originalLength: outfitHistory.length,
         convertedLength: firestoreOutfitHistory.length,
       });
@@ -156,53 +144,52 @@ export class FirebaseService {
         })
       );
 
-      console.log('✅ DEBUG: Session updated successfully');
+      console.log('[FirebaseService] Session updated');
     } catch (error) {
-      console.error('❌ DEBUG: Error updating session:', error);
+      console.error('[FirebaseService] Error updating session', error);
       throw error;
     }
   }
 
-  
-static async getUserSessions(
-  userId: string,
-  opts?: { noOrder?: boolean }
-): Promise<TryOnSession[]> {
-  const constraints: QueryConstraint[] = [ where('userId', '==', userId) ];
-  if (!opts?.noOrder) constraints.push(orderBy('updatedAt', 'desc'));
-  constraints.push(limit(20));
+  static async getUserSessions(
+    userId: string,
+    opts?: { noOrder?: boolean }
+  ): Promise<TryOnSession[]> {
+    const constraints: QueryConstraint[] = [where('userId', '==', userId)];
+    if (!opts?.noOrder) constraints.push(orderBy('updatedAt', 'desc'));
+    constraints.push(limit(20));
 
-  const q = query(collection(db, 'sessions'), ...constraints);
-  const snap = await getDocs(q);
+    const q = query(collection(db, 'sessions'), ...constraints);
+    const snap = await getDocs(q);
 
-  return snap.docs.map((d) => {
-    const data = d.data();
+    return snap.docs.map((d) => {
+      const data = d.data();
 
-    // ✅ seguro ante serverTimestamp() y tipos raros
-    const createdAt: Date =
-      (data.createdAt instanceof Timestamp && data.createdAt.toDate()) ||
-      data.createdAt?.toDate?.() ||
-      new Date(0);
+      // ✅ seguro ante serverTimestamp() y tipos raros
+      const createdAt: Date =
+        (data.createdAt instanceof Timestamp && data.createdAt.toDate()) ||
+        data.createdAt?.toDate?.() ||
+        new Date(0);
 
-    const updatedAt: Date =
-      (data.updatedAt instanceof Timestamp && data.updatedAt.toDate()) ||
-      data.updatedAt?.toDate?.() ||
-      createdAt; // fallback razonable
+      const updatedAt: Date =
+        (data.updatedAt instanceof Timestamp && data.updatedAt.toDate()) ||
+        data.updatedAt?.toDate?.() ||
+        createdAt; // fallback razonable
 
-    return {
-      id: d.id,
-      userId: data.userId,
-      originalImageUrl: data.originalImageUrl,
-      createdAt,
-      updatedAt,
-      outfitHistory: (data.outfitHistory ?? []).map((layer: any) =>
-        this.convertFirestoreToOutfitLayer(layer)
-      ),
-      currentOutfitIndex: Number(data.currentOutfitIndex ?? 0),
-      currentPoseIndex: Number(data.currentPoseIndex ?? 0),
-    } as TryOnSession;
-  });
-}
+      return {
+        id: d.id,
+        userId: data.userId,
+        originalImageUrl: data.originalImageUrl,
+        createdAt,
+        updatedAt,
+        outfitHistory: (data.outfitHistory ?? []).map((layer: any) =>
+          this.convertFirestoreToOutfitLayer(layer)
+        ),
+        currentOutfitIndex: Number(data.currentOutfitIndex ?? 0),
+        currentPoseIndex: Number(data.currentPoseIndex ?? 0),
+      } as TryOnSession;
+    });
+  }
   
 
 
@@ -248,21 +235,16 @@ static async getUserSessions(
     garmentId?: string
   ): Promise<string> {
     try {
-      console.log(
-        'Caching image for session:',
+      console.log('[FirebaseService] Caching generated image', {
         sessionId,
-        'pose:',
         poseInstruction,
-        'garment:',
-        garmentId
-      );
+        garmentId,
+      });
 
       // Check if the URL is a base64 data URL and upload to Storage if needed
       let finalImageUrl = imageUrl;
       if (imageUrl.startsWith('data:')) {
-        console.log(
-          'Detected base64 image for caching, uploading to Storage...'
-        );
+        console.log('[FirebaseService] Uploading generated image to Storage');
         const timestamp = Date.now();
         const imagePath = `generated-images/${userId}/${sessionId}/${poseInstruction}-${
           garmentId || 'base'
@@ -281,10 +263,12 @@ static async getUserSessions(
       };
 
       const docRef = await addDoc(collection(db, 'generatedImages'), imageData);
-      console.log('Image cached successfully with ID:', docRef.id);
+      console.log('[FirebaseService] Cached image record created', {
+        cacheId: docRef.id,
+      });
       return docRef.id;
     } catch (error) {
-      console.error('Error caching image:', error);
+      console.error('[FirebaseService] Error caching image', error);
       throw error;
     }
   }
@@ -351,6 +335,38 @@ static async getUserSessions(
   }
 
   // Normaliza un OutfitLayer a algo 100% escribible en Firestore
+  private static sanitizePoseImages(input: unknown): Record<string, string> {
+    if (!input) return {};
+
+    if (Array.isArray(input)) {
+      return input.reduce((acc, value, index) => {
+        if (typeof value === 'string' && value.trim().length > 0) {
+          const poseKey = POSE_INSTRUCTIONS[index] ?? `pose-${index}`;
+          acc[poseKey] = value;
+        }
+        return acc;
+      }, {} as Record<string, string>);
+    }
+
+    if (typeof input === 'object') {
+      return Object.entries(input as Record<string, unknown>).reduce(
+        (acc, [pose, value]) => {
+          if (typeof value === 'string' && value.trim().length > 0) {
+            acc[String(pose)] = value;
+          }
+          return acc;
+        },
+        {} as Record<string, string>
+      );
+    }
+
+    if (typeof input === 'string' && input.trim().length > 0) {
+      return { [POSE_INSTRUCTIONS[0]]: input };
+    }
+
+    return {};
+  }
+
   static normalizeLayer(layer: OutfitLayer) {
     return {
       garment: layer.garment
@@ -360,11 +376,24 @@ static async getUserSessions(
             url: String(layer.garment.url ?? ''),
           }
         : null,
-      // solo strings válidos, sin undefined/null/objetos
-      poseImages: (Array.isArray(layer.poseImages)
-        ? layer.poseImages
-        : []
-      ).filter((v): v is string => typeof v === 'string' && v.length > 0),
+      poseImages: FirebaseService.sanitizePoseImages(layer.poseImages),
+    };
+  }
+
+  private static convertFirestoreToOutfitLayer(
+    firestoreData: any
+  ): OutfitLayer {
+    return {
+      garment: firestoreData.garment
+        ? {
+            id: firestoreData.garment.id,
+            name: firestoreData.garment.name,
+            url: firestoreData.garment.url,
+          }
+        : null,
+      poseImages: FirebaseService.sanitizePoseImages(
+        firestoreData.poseImages
+      ),
     };
   }
 
