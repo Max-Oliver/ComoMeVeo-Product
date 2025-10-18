@@ -42,7 +42,22 @@ const blobToDataUrl = (blob: Blob) =>
 
 const isFirebaseStorageUrl = (url: string) =>
     url.includes("firebasestorage.googleapis.com") ||
-    url.startsWith("https://storage.googleapis.com/");
+    url.startsWith("https://storage.googleapis.com/") ||
+    url.startsWith("gs://");
+
+const toFirebaseStorageRef = (imageUrl: string) => {
+    if (imageUrl.startsWith('gs://')) {
+        return ref(storage, imageUrl);
+    }
+
+    const match = imageUrl.match(/\/o\/([^?#]+)/);
+    if (match?.[1]) {
+        const path = decodeURIComponent(match[1]);
+        return ref(storage, path);
+    }
+
+    throw new Error('Unable to derive Firebase Storage path from URL');
+};
 
 const imageUrlToInlinePart = async (imageUrl: string) => {
     if (imageUrl.startsWith('data:')) {
@@ -52,7 +67,7 @@ const imageUrlToInlinePart = async (imageUrl: string) => {
     if (isFirebaseStorageUrl(imageUrl)) {
         try {
             console.log('[Gemini] Loading Firebase Storage image for inline conversion');
-            const storageRef = ref(storage, imageUrl);
+            const storageRef = toFirebaseStorageRef(imageUrl);
             const blob = await getBlob(storageRef);
             const dataUrl = await blobToDataUrl(blob);
             return dataUrlToPart(dataUrl);
