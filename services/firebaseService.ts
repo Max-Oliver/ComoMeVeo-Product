@@ -13,6 +13,7 @@ import {
   QueryConstraint
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { FieldValue } from 'firebase/firestore';
 import { db, storage } from '../config/firebase';
 import { TryOnSession, Feedback, GeneratedImage, OutfitLayer } from '../types';
 import { POSE_INSTRUCTIONS } from '../lib/poses';
@@ -398,20 +399,42 @@ export class FirebaseService {
   }
 
   // Limpia undefined recursivamente (Firestore no lo admite)
+  private static isFirestoreFieldValue(value: unknown): value is FieldValue {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      // All sentinel FieldValue instances currently use this internal name
+      (value as { constructor?: { name?: string } }).constructor?.name ===
+        'FieldValueImpl'
+    );
+  }
+
+  private static isPlainObject(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== 'object' || value === null) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  }
+
   static deepClean<T>(val: T): T {
     if (Array.isArray(val)) {
       return val
         .map((v) => FirebaseService.deepClean(v))
         .filter((v) => v !== undefined) as unknown as T;
     }
-    if (val && typeof val === 'object') {
-      const out: any = {};
-      for (const [k, v] of Object.entries(val as any)) {
+
+    if (FirebaseService.isFirestoreFieldValue(val)) {
+      return val;
+    }
+
+    if (FirebaseService.isPlainObject(val)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(val)) {
         const cleaned = FirebaseService.deepClean(v);
         if (cleaned !== undefined) out[k] = cleaned;
       }
-      return out;
+      return out as T;
     }
+
     return (val === undefined ? null : val) as T;
   }
 }
