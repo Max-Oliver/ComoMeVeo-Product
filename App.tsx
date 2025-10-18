@@ -74,12 +74,13 @@ const AppContent: React.FC = () => {
     const createSessionAfterLogin = async () => {
       if (user && modelImageUrl && !currentSessionId && outfitHistory.length > 0) {
         try {
-          console.log('🔧 DEBUG: Creating session after login for user:', user.uid);
-          console.log('🔧 DEBUG: User email:', user.email);
-          console.log('🔧 DEBUG: Outfit history length:', outfitHistory.length);
-          console.log('🔧 DEBUG: Current outfit index:', currentOutfitIndex);
-          console.log('🔧 DEBUG: Current pose index:', currentPoseIndex);
-          
+          console.log('[Session] Creating session after login', {
+            userId: user.uid,
+            layers: outfitHistory.length,
+            outfitIndex: currentOutfitIndex,
+            poseIndex: currentPoseIndex,
+          });
+
           const sessionId = await FirebaseService.createSession(
             user.uid,
             modelImageUrl,
@@ -87,10 +88,10 @@ const AppContent: React.FC = () => {
             currentOutfitIndex,
             currentPoseIndex
           );
-          console.log('✅ DEBUG: Session created after login with ID:', sessionId);
+          console.log('[Session] Session created after login', { sessionId });
           setCurrentSessionId(sessionId);
         } catch (error) {
-          console.error('❌ DEBUG: Error creating session after login:', error);
+          console.error('[Session] Error creating session after login', error);
         }
       }
     };
@@ -134,16 +135,9 @@ const AppContent: React.FC = () => {
     setOutfitHistory([initialLayer]);
     setCurrentOutfitIndex(0);
 
-    console.log('🔧 DEBUG: Model finalized, creating initial layer');
-    console.log('🔧 DEBUG: Initial layer structure:', initialLayer);
-
     // Create session in Firebase if user is authenticated
     if (user) {
       try {
-        console.log('🔧 DEBUG: Creating session for user:', user.uid);
-        console.log('🔧 DEBUG: User email:', user.email);
-        console.log('🔧 DEBUG: Initial layer data:', initialLayer);
-        
         const sessionId = await FirebaseService.createSession(
           user.uid,
           url,
@@ -151,15 +145,18 @@ const AppContent: React.FC = () => {
           0,
           0
         );
-        console.log('✅ DEBUG: Session created with ID:', sessionId);
+        console.log('[Session] Session created after model finalized', {
+          sessionId,
+          userId: user.uid,
+        });
         setCurrentSessionId(sessionId);
       } catch (error) {
-        console.error('❌ DEBUG: Error creating session:', error);
+        console.error('[Session] Error creating session after model finalized', error);
         // Show error to user
         setError('Error creating session. Please try again.');
       }
     } else {
-      console.log('🔧 DEBUG: User not authenticated, session will be created after login');
+      console.log('[Session] User not authenticated, session will be created after login');
     }
   };
 
@@ -379,10 +376,52 @@ const AppContent: React.FC = () => {
   }, [currentPoseIndex, outfitHistory, isLoading, currentOutfitIndex, currentSessionId, user]);
 
   const handleSessionSelect = useCallback((session: TryOnSession) => {
+    const safePoseIndex = Math.min(
+      Math.max(session.currentPoseIndex ?? 0, 0),
+      POSE_INSTRUCTIONS.length - 1
+    );
+
+    let normalizedHistory = session.outfitHistory ?? [];
+
+    if (normalizedHistory.length === 0) {
+      normalizedHistory = [
+        {
+          garment: null,
+          poseImages: {
+            [POSE_INSTRUCTIONS[safePoseIndex] ?? POSE_INSTRUCTIONS[0]]: session.originalImageUrl,
+          },
+        },
+      ];
+    } else {
+      normalizedHistory = normalizedHistory.map((layer, index) => {
+        if (index === 0 && (!layer.poseImages || Object.keys(layer.poseImages).length === 0)) {
+          return {
+            ...layer,
+            poseImages: {
+              [POSE_INSTRUCTIONS[safePoseIndex] ?? POSE_INSTRUCTIONS[0]]: session.originalImageUrl,
+            },
+          };
+        }
+        return layer;
+      });
+    }
+
+    const safeOutfitIndex = Math.min(
+      Math.max(session.currentOutfitIndex ?? 0, 0),
+      normalizedHistory.length - 1
+    );
+
+    console.log('[SessionHistory] Loading session', {
+      sessionId: session.id,
+      layers: normalizedHistory.length,
+      outfitIndex: safeOutfitIndex,
+      poseIndex: safePoseIndex,
+    });
+
     setModelImageUrl(session.originalImageUrl);
-    setOutfitHistory(session.outfitHistory);
-    setCurrentOutfitIndex(session.currentOutfitIndex);
-    setCurrentPoseIndex(session.currentPoseIndex);
+    setOutfitHistory(normalizedHistory);
+    setCurrentOutfitIndex(safeOutfitIndex);
+    setCurrentPoseIndex(safePoseIndex);
     setCurrentSessionId(session.id);
     setError(null);
     setIsLoading(false);
@@ -398,8 +437,8 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="font-sans">
-      <Header 
-        showHistory={!!modelImageUrl} 
+      <Header
+        showHistory={!!user}
         onSessionSelect={handleSessionSelect}
       />
       
