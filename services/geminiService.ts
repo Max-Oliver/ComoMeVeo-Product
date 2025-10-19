@@ -4,6 +4,9 @@
 */
 
 import { GoogleGenAI, GenerateContentResponse, Modality } from "@google/genai";
+import { getBlob, ref } from "firebase/storage";
+
+import { storage } from "../config/firebase";
 
 const fileToPart = async (file: File) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -28,6 +31,60 @@ const dataUrlToPart = (dataUrl: string) => {
     const { mimeType, data } = dataUrlToParts(dataUrl);
     return { inlineData: { mimeType, data } };
 }
+
+const blobToDataUrl = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+
+const isFirebaseStorageUrl = (url: string) =>
+    url.includes("firebasestorage.googleapis.com") ||
+    url.startsWith("https://storage.googleapis.com/") ||
+    url.startsWith("gs://");
+
+const toFirebaseStorageRef = (imageUrl: string) => {
+    if (imageUrl.startsWith('gs://')) {
+        return ref(storage, imageUrl);
+    }
+
+    const match = imageUrl.match(/\/o\/([^?#]+)/);
+    if (match?.[1]) {
+        const path = decodeURIComponent(match[1]);
+        return ref(storage, path);
+    }
+
+    throw new Error('Unable to derive Firebase Storage path from URL');
+};
+
+const imageUrlToInlinePart = async (imageUrl: string) => {
+    if (imageUrl.startsWith('data:')) {
+        return dataUrlToPart(imageUrl);
+    }
+
+    if (isFirebaseStorageUrl(imageUrl)) {
+        try {
+            console.log('[Gemini] Loading Firebase Storage image for inline conversion');
+            const storageRef = toFirebaseStorageRef(imageUrl);
+            const blob = await getBlob(storageRef);
+            const dataUrl = await blobToDataUrl(blob);
+            return dataUrlToPart(dataUrl);
+        } catch (storageError) {
+            console.warn('[Gemini] Failed to load image via Firebase Storage, falling back to fetch', storageError);
+        }
+    }
+
+    const response = await fetch(imageUrl, { mode: 'cors' });
+    if (!response.ok) {
+        throw new Error(`Failed to fetch image for processing (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const dataUrl = await blobToDataUrl(blob);
+    return dataUrlToPart(dataUrl);
+};
 
 const handleApiResponse = (response: GenerateContentResponse): string => {
     if (response.promptFeedback?.blockReason) {
@@ -72,7 +129,7 @@ export const generateModelImage = async (userImage: File): Promise<string> => {
 };
 
 export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentImage: File): Promise<string> => {
-    const modelImagePart = dataUrlToPart(modelImageUrl);
+    const modelImagePart = await imageUrlToInlinePart(modelImageUrl);
     const garmentImagePart = await fileToPart(garmentImage);
     const prompt = `You are an expert virtual try-on AI. You will be given a 'model image' and a 'garment image'. Your task is to create a new photorealistic image where the person from the 'model image' is wearing the clothing from the 'garment image'.
 
@@ -93,7 +150,7 @@ export const generateVirtualTryOnImage = async (modelImageUrl: string, garmentIm
 };
 
 export const generatePoseVariation = async (tryOnImageUrl: string, poseInstruction: string): Promise<string> => {
-    const tryOnImagePart = dataUrlToPart(tryOnImageUrl);
+    const tryOnImagePart = await imageUrlToInlinePart(tryOnImageUrl);
     const prompt = `You are an expert fashion photographer AI. Take this image and regenerate it from a different perspective. The person, clothing, and background style must remain identical. The new perspective should be: "${poseInstruction}". Return ONLY the final image.`;
     const response = await ai.models.generateContent({
         model,
